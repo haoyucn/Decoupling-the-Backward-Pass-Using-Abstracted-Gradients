@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 
-class PrimitiveLayerWraper(torch.nn.Module):
+class PrimitiveLayerWrapper(torch.nn.Module):
     def __init__(self, layer):
         super().__init__()
         self.layer = layer
