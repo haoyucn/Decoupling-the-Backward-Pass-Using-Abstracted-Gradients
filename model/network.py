@@ -1,6 +1,7 @@
 
 import torch
 import torch.nn as nn
+
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -16,6 +17,7 @@ class PrimitiveLayerWrapper(torch.nn.Module):
         output = self.layer(x)
         output.detach()
         return output.detach()
+
 
 
 class TeacherNet(nn.Module):
@@ -41,3 +43,4 @@ class TeacherNet(nn.Module):
 
         x = self.fc5(x)
         return F.log_softmax(x)
+
