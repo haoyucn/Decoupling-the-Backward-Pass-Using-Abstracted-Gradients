@@ -46,3 +46,41 @@ class TeacherNet(nn.Module):
         x = self.fc3(x)
         return F.log_softmax(x)
 
+
+class MNet(torch.nn.Module):
+    def __init__(self, sequentialLayers):
+        super(MNet, self).__init__()
+        self.sequentialLayers = sequentialLayers
+        self.sequentialLayers.requires_grad = False
+
+    def forward(self, x):
+        x_clone = x.clone().detach()
+        x_clone.requires_grad = False
+        sequentialOutput = self.sequentialLayers(x_clone)
+        x_clone_inv = torch.linalg.pinv(x_clone)
+        m = F.linear(x_clone_inv, torch.transpose(sequentialOutput, 0, 1)).detach()
+        return F.linear(x, torch.transpose(m, 0, 1))
+        
+
+
+class FastUpdateNet(torch.nn.Module):
+    def __init__(self, teacherNet = None):
+        super(FastUpdateNet, self).__init__()
+        if teacherNet:
+            self.fc1 = teacherNet.fc1
+            self.mNet = MNet(teacherNet.distillable)
+            self.fc3 = teacherNet.fc3
+        else:
+            self.fc1 = nn.Linear(total_image_pixel, 392)
+            self.mNet = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            self.fc3 = nn.Linear(49, 10)
+
+    def forward(self, x):
+        o_1 = torch.reshape(x, (x.shape[0], 28*28))
+        
+        o_2 = F.relu(self.fc1(o_1))
+
+        o_3 = self.mNet(o_2)
+
+        o_4 = self.fc3(o_3)
+        return F.log_softmax(o_4)
