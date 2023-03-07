@@ -1,7 +1,7 @@
 import torch
 import torchvision
 
-def get_train_test_loader(dataset_name, batch_size_train = 64, batch_size_test = 1000, path = './data/'):
+def get_train_test_loader(dataset_name='mnist', batch_size_train = 64, batch_size_test = 1000, path = './data/'):
     transform = torchvision.transforms.Compose([
                                     torchvision.transforms.ToTensor(),
                                     torchvision.transforms.Normalize(
