@@ -7,22 +7,16 @@ import torch.optim as optim
 
 class GradSaver(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, t, y, m, saver):
-        ctx.save_for_backward(saver, m)
-        return y.clone().detach()
+    def forward(ctx, o, saver):
+        ctx.save_for_backward(saver)
+        return o.clone().detach()
 
     @staticmethod
     def backward(ctx, gradients):
-        saver, m, = ctx.saved_tensors
-        # 64 * 64
-        # print(m.shape, gradients.shape)
-        t_grad = torch.matmul(m, torch.transpose(gradients, 0, 1))
-        # print(t_grad.shape)
-        # t_grad = m * gradients
+        saver, = ctx.saved_tensors
         saver.grad = gradients.clone()
         # print(gradients)
-
-        return  t_grad.clone(), None, None ,None
+        return gradients.clone(), None
 
 
 
@@ -77,6 +71,7 @@ class MNet(torch.nn.Module):
         lo = x_clone
         for l in self.layers:
             lo = l(lo)
+            # self.layersOutput.append(lo)
             lo = F.relu(lo)
         return lo
 
@@ -96,23 +91,15 @@ class MNet(torch.nn.Module):
     def forward(self, x):
         x_clone = x.clone().detach()
         x_clone.requires_grad = False
-
-        t = torch.matmul(x , torch.transpose(x_clone, 0, 1))
-        t_inv = torch.linalg.inv(t)
-        
         self.sequentialOutput = self.getLayersOutput(x_clone)
+        # self.saver = sequentialOutput.clone().detach()
         if self.saver.shape != self.sequentialOutput.shape:
             self.saver = torch.ones(self.sequentialOutput.shape)
-        # print('self.sequentialOutput.shape', self.sequentialOutput.shape)
-        m = torch.matmul(t_inv, self.sequentialOutput).detach()
-        # print('m.shape', m.shape)
-        # print(t.shape)
-        # torch.transpose(self.sequentialOutput, 0, 1)
-        # fake_original = torch.matmul(t, m) 
-        # print('fake_original.shape', fake_original.shape, 'self.sequentialOutput.shape', self.sequentialOutput.shape)
-        # print((fake_original- self.sequentialOutput).abs().sum())
-        return self.gradDiverge(t, self.sequentialOutput.clone().detach(), m, self.saver)
-        # return self.getLayersOutput(x)
+        # print(self.sequentialOutput.requires_grad)
+        x_clone_inv = torch.linalg.pinv(x_clone)
+        m = F.linear(x_clone_inv, torch.transpose(self.sequentialOutput, 0, 1)).detach()
+        o = F.linear(x, torch.transpose(m, 0, 1))
+        return self.gradDiverge(o, self.saver)
 
     def backwardHidden(self):
         self.sequentialOutput.backward(gradient = self.saver.grad.clone().detach())
