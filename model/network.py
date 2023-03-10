@@ -7,16 +7,17 @@ import torch.optim as optim
 
 class GradSaver(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, o, saver):
-        ctx.save_for_backward(saver)
-        return o.clone().detach()
+    def forward(ctx, x, sequentialOutput, saver):
+        m = torch.linalg.lstsq(x, sequentialOutput).solution.detach()
+        ctx.save_for_backward(m, saver)
+        return sequentialOutput.clone().detach()
 
     @staticmethod
     def backward(ctx, gradients):
-        saver, = ctx.saved_tensors
+        m, saver, = ctx.saved_tensors
         saver.grad = gradients.clone()
         # print(gradients)
-        return gradients.clone(), None
+        return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
 
 
 
@@ -95,9 +96,9 @@ class MNet(torch.nn.Module):
         if self.saver.shape != self.sequentialOutput.shape:
             self.saver = torch.ones(self.sequentialOutput.shape)
         # print(self.sequentialOutput.requires_grad)
-        m = torch.linalg.lstsq(x_clone, self.sequentialOutput).solution.detach()
-        o = F.linear(x, torch.transpose(m, 0, 1))
-        return self.gradDiverge(o, self.saver)
+        # m = torch.linalg.lstsq(x_clone, self.sequentialOutput).solution.detach()
+        # o = F.linear(x, torch.transpose(m, 0, 1))
+        return self.gradDiverge(x, self.sequentialOutput.clone().detach(), self.saver)
 
     def backwardHidden(self):
         self.sequentialOutput.backward(gradient = self.saver.grad.clone().detach())
