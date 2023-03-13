@@ -14,7 +14,7 @@ class GradSaver(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gradients):
         x, saver, sequentialOutput, = ctx.saved_tensors
-        m = torch.linalg.lstsq(x, sequentialOutput).solution.detach()
+        m = torch.linalg.lstsq(x, sequentialOutput).solution
         saver.grad = gradients.clone()
         return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
 
