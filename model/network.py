@@ -8,15 +8,14 @@ import torch.optim as optim
 class GradSaver(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, sequentialOutput, saver):
-        m = torch.linalg.lstsq(x, sequentialOutput).solution.detach()
-        ctx.save_for_backward(m, saver)
+        ctx.save_for_backward(x, saver, sequentialOutput)
         return sequentialOutput.clone().detach()
 
     @staticmethod
     def backward(ctx, gradients):
-        m, saver, = ctx.saved_tensors
+        x, saver, sequentialOutput, = ctx.saved_tensors
+        m = torch.linalg.lstsq(x, sequentialOutput).solution.detach()
         saver.grad = gradients.clone()
-        # print(gradients)
         return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
 
 
