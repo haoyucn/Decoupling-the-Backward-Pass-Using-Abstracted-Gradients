@@ -20,6 +20,7 @@ class GradSaver(torch.autograd.Function):
 
 
 
+
 class TeacherNet(nn.Module):
     def __init__(self, total_image_pixel = 784):
         super(TeacherNet, self).__init__()
@@ -58,7 +59,7 @@ class MNet(torch.nn.Module):
         # self.layers.requires_grad = False
         self.input_x = None
         self.layersOutput = []
-        self.saver = torch.ones((64,49), dtype = self.layers[1].weight.dtype, requires_grad=True)
+        self.saver = torch.ones((64,49), dtype = self.layers[1].weight.dtype, requires_grad=True) # check dims of this (batch, output of M) -- TODO
         self.gradDiverge = GradSaver.apply
 
     def getLayersOutput(self, x):
@@ -100,6 +101,7 @@ class MNet(torch.nn.Module):
         return self.gradDiverge(x, self.sequentialOutput.clone().detach(), self.saver)
 
     def backwardHidden(self):
+        # print('in MNet, ', self.saver.grad)
         self.sequentialOutput.backward(gradient = self.saver.grad.clone().detach())
         
     def get_parameters(self):
@@ -137,5 +139,48 @@ class FastUpdateNet(torch.nn.Module):
         ps.append(self.fc3.weight)
         ps.append(self.fc3.bias)
         for p in mnetPs:
+            ps.append(p)
+        return ps
+    
+class FastUpdateNetLarge(torch.nn.Module):
+    def __init__(self, teacherNet = None, total_image_pixel = 784):
+        super(FastUpdateNetLarge, self).__init__()
+        if teacherNet:
+            self.fc1 = teacherNet.fc1
+            self.mNet = MNet(teacherNet.distillable)
+            self.fc3 = teacherNet.fc3
+        else:
+            self.fc1 = nn.Linear(total_image_pixel, 392)
+            self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            self.fc2 = nn.Linear(49,392)
+            # self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU()))
+
+            self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            self.fc3 = nn.Linear(49, 10)
+
+    def forward(self, x):
+        o_1 = torch.reshape(x, (x.shape[0], 28*28))
+        
+        o_2 = F.relu(self.fc1(o_1))
+        o_3 = self.mNet1(o_2)
+        o_imd = F.relu(self.fc2(o_3))
+        o_4 = self.mNet2(o_imd)
+
+        o_5 = self.fc3(o_4)
+        return F.log_softmax(o_5)
+
+    def get_parameters(self):
+        ps = []
+        mnet1Ps = self.mNet1.get_parameters()
+        mnet2Ps = self.mNet2.get_parameters()
+        ps.append(self.fc1.weight)
+        ps.append(self.fc1.bias)
+        ps.append(self.fc2.weight)
+        ps.append(self.fc2.bias)
+        ps.append(self.fc3.weight)
+        ps.append(self.fc3.bias)
+        for p in mnet1Ps:
+            ps.append(p)
+        for p in mnet2Ps:
             ps.append(p)
         return ps
