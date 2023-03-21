@@ -7,3 +7,7 @@
 *.pyc
 
 train_teacher_example.ipynb
+
+.env/
+
+data/WMT14/*
