@@ -14,9 +14,9 @@ class GradSaver(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gradients):
         x, saver, sequentialOutput, = ctx.saved_tensors
-        m = torch.linalg.lstsq(x, sequentialOutput).solution
+        m = torch.linalg.lstsq(sequentialOutput, x).solution
         saver.grad = gradients.clone()
-        return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
+        return torch.transpose(torch.matmul(torch.transpose(m, 0, 1), torch.transpose(gradients, 0, 1)),0,1), None, None
 
 
 
@@ -111,7 +111,6 @@ class MNet(torch.nn.Module):
             ps.append(l.bias)
         return ps
 
-
 class FastUpdateNet(torch.nn.Module):
     def __init__(self, teacherNet = None, total_image_pixel = 784):
         super(FastUpdateNet, self).__init__()
@@ -122,6 +121,92 @@ class FastUpdateNet(torch.nn.Module):
         else:
             self.fc1 = nn.Linear(total_image_pixel, 392)
             self.mNet = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            self.fc3 = nn.Linear(49, 10)
+
+    def forward(self, x):
+        o_1 = torch.reshape(x, (x.shape[0], 28*28))
+        o_2 = F.relu(self.fc1(o_1))
+        o_3 = self.mNet(o_2)
+        o_4 = self.fc3(o_3)
+        return F.log_softmax(o_4)
+
+    def get_parameters(self):
+        ps = []
+        mnetPs = self.mNet.get_parameters()
+        ps.append(self.fc1.weight)
+        ps.append(self.fc1.bias)
+        ps.append(self.fc3.weight)
+        ps.append(self.fc3.bias)
+        for p in mnetPs:
+            ps.append(p)
+        return ps
+
+
+
+class MNetForFasterNet(torch.nn.Module):
+    def __init__(self, sequentialLayers):
+        super(MNet, self).__init__()
+        self.layers = []
+        for l in sequentialLayers:
+            if not isinstance(l, nn.ReLU):
+                # l.requires_grad = True
+                self.layers.append(l)
+        # self.layers.requires_grad = False
+        self.input_x = None
+        self.layersOutput = []
+        self.saver = torch.ones((64,49), dtype = self.layers[1].weight.dtype, requires_grad=True) # check dims of this (batch, output of M) -- TODO
+        self.gradDiverge = GradSaver.apply
+
+    def getLayersOutput(self, x):
+        self.layersOutput = []
+
+        x_clone = x.clone().detach()
+        x_clone.requires_grad = False
+        self.input_x = x_clone
+
+        lo = x_clone
+        for l in self.layers:
+            lo = l(lo)
+            lo = F.relu(lo)
+        return lo
+
+    def weightUpdate(self, correctness, lr = 0.001):
+        grad = self.saver.grad.clone().detach()
+        return
+
+    def forward(self, x):
+        x_clone = x.clone().detach()
+        x_clone.requires_grad = False
+        self.sequentialOutput = self.getLayersOutput(x_clone)
+        # self.saver = sequentialOutput.clone().detach()
+        if self.saver.shape != self.sequentialOutput.shape:
+            self.saver = torch.ones(self.sequentialOutput.shape)
+        # print(self.sequentialOutput.requires_grad)
+        # m = torch.linalg.lstsq(x_clone, self.sequentialOutput).solution.detach()
+        # o = F.linear(x, torch.transpose(m, 0, 1))
+        return self.gradDiverge(x, self.sequentialOutput.clone().detach(), self.saver)
+
+    def backwardHidden(self):
+        # print('in MNet, ', self.saver.grad)
+        self.sequentialOutput.backward(gradient = self.saver.grad.clone().detach())
+        
+    def get_parameters(self):
+        ps = []
+        for l in self.layers:
+            ps.append(l.weight)
+            ps.append(l.bias)
+        return ps
+
+class FasterUpdateNet(torch.nn.Module):
+    def __init__(self, teacherNet = None, total_image_pixel = 784):
+        super(FastUpdateNet, self).__init__()
+        if teacherNet:
+            self.fc1 = teacherNet.fc1
+            self.mNet = MNetForFasterNet(teacherNet.distillable)
+            self.fc3 = teacherNet.fc3
+        else:
+            self.fc1 = nn.Linear(total_image_pixel, 392)
+            self.mNet = MNetForFasterNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
             self.fc3 = nn.Linear(49, 10)
 
     def forward(self, x):
