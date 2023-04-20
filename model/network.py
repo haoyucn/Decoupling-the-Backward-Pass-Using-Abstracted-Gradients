@@ -14,10 +14,43 @@ class GradSaver(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gradients):
         x, saver, sequentialOutput, = ctx.saved_tensors
-        m = torch.linalg.lstsq(x, sequentialOutput).solution
+        target_len = 392
+        x1 = x[:target_len]
+        x2 = x[target_len:]
+        # print('x2.shape[0]', x2.shape[0], 'target_len', target_len)
+        x2 = F.pad(x2, (0,0,0, abs(x2.shape[0] - target_len)), "constant", 0)
+        m1 = torch.linalg.lstsq(x1, sequentialOutput[:target_len]).solution
+        m1_grad = torch.matmul(gradients[:target_len], torch.transpose(m1, 0, 1))
+        s2 = sequentialOutput[target_len:]
+        s2 = F.pad(s2, (0,0,0, abs(s2.shape[0] - target_len)), "constant", 0)
+        # m2 = F.pad(m2, (0,0,0, abs(m2.shape[0] - target_len)), "constant", 0)
+        
+        m2 = torch.linalg.lstsq(x2, s2).solution
+        # m2 = m2[:x[target_len:].shape[0]]
+        g2 = gradients[target_len:]
+        g2 = F.pad(g2, (0,0,0, abs(g2.shape[0] - target_len)), "constant", 0)
+        m2_grad = torch.matmul(g2, torch.transpose(m2, 0, 1))
+        # m2_grad_zero = m2_grad[x[target_len:].shape[0]:]
+        m2_grad = m2_grad[:x[target_len:].shape[0]]
         saver.grad = gradients.clone()
-        return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
+        # print('m2_grad_zero sum', m2_grad_zero.abs().sum())
+        
+        # print('m1', m1.shape)
+        # print('m2', m2.shape)
+        
 
+        # print('g2', gradients[target_len:].shape)
+        # print('m1_grad', m1_grad.shape)
+        # print('m2_grad', m2_grad.shape)
+
+        return torch.cat((m1_grad,m2_grad), 0), None, None
+
+
+        # m = torch.linalg.lstsq(x, sequentialOutput).solution
+        # saver.grad = gradients.clone()
+        # outGrad = torch.matmul(gradients, torch.transpose(m, 0, 1))
+        # # print('outGrad', outGrad.shape)
+        # return outGrad, None, None
 
 
 
@@ -212,11 +245,6 @@ class IncomingGradDiverger_c(torch.autograd.Function):
         ctx.mSaver = mSaver
         ctx.cNet = cNet
         return sequentialOutput.clone().detach()
-    
-    # @staticmethod
-    # def setup_context(ctx, inputs, output):
-    #     x, sequentialOutput, incomingGradSaver, mSaver, cNet = inputs
-        
 
     @staticmethod
     def backward(ctx, gradients):
