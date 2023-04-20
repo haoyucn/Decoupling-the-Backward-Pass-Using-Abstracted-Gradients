@@ -24,7 +24,11 @@ class GradSaver(torch.autograd.Function):
         t = 1e-9
         x_T = torch.transpose(x, 0, 1)
         I = torch.eye(x.shape[0]).to('cuda:1')
-        pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + t * I)) 
+        try:
+            pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + t * I)) 
+        except Exception:
+            pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + I)) 
+
         # print(pinv.shape)
         m = torch.mm(pinv, sequentialOutput) # torch.transpose(pinv, -1, 1)
         # print(m.shape)
@@ -260,6 +264,10 @@ class Linear_AE(torch.nn.Module):
         ps.append(self.fc1.weight)
         ps.append(self.fc1.bias)
         ps.append(self.fc3.weight)
+        ps.append(self.fc3.bias)
+        ps.append(self.fc5.weight)
+        ps.append(self.fc5.bias)
+        ps.append(self.fc8.weight)
         ps.append(self.fc3.bias)
         for p in mnet1Ps:
             ps.append(p)
