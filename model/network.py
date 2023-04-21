@@ -230,19 +230,27 @@ class Linear_AE(torch.nn.Module):
         super(Linear_AE, self).__init__()
         
         self.fc1 = nn.Linear(total_image_pixel, 392)
-        self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1'))
+        self.conv1 = nn.Conv2d(1, out_channels=8, kernel_size=3, stride=2, padding=1)
+        self.flatten = nn.Flatten(start_dim=1)
+        mnet_in = 1568# 392
+
+        self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(mnet_in, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1'))
         self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(49, 98), nn.ReLU(), nn.Linear(98, 196), nn.ReLU(), nn.Linear(196, 392), nn.ReLU()).to('cuda:1'))
         self.fc3 = nn.Linear(49, 10)
 
         self.fc5 = nn.Linear(10,49)
         self.fc8 = nn.Linear(392, total_image_pixel)
+        # try conv here too?
+        self.convf = nn.ConvTranspose2d(1, 1, 3, stride=2, 
+            padding=1, output_padding=1)
 
     def forward(self, x):
 
-        x = torch.reshape(x, (x.shape[0], 28*28)).to('cuda:1')
+        # x = torch.reshape(x, (x.shape[0], 28*28)).to('cuda:1')
 
         # encoder
-        o_1 = F.relu(self.fc1(x))
+        o_1 = self.flatten(F.relu(self.conv1(x)))
+        # print(o_1.shape)
         o_4 = self.mNet1(o_1)
         o_5 = self.fc3(o_4)
 
@@ -261,6 +269,8 @@ class Linear_AE(torch.nn.Module):
         ps = []
         mnet1Ps = self.mNet1.get_parameters()
         mnet2Ps = self.mNet2.get_parameters()
+        ps.append(self.conv1.weight)
+        ps.append(self.conv1.bias)
         ps.append(self.fc1.weight)
         ps.append(self.fc1.bias)
         ps.append(self.fc3.weight)
