@@ -5,6 +5,53 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+# class GradSaver(torch.autograd.Function):
+#     @staticmethod
+#     def forward(ctx, x, sequentialOutput, saver):
+#         ctx.save_for_backward(x, saver, sequentialOutput)
+#         return sequentialOutput.clone().detach()
+
+#     @staticmethod
+#     def backward(ctx, gradients):
+#         # old method using least squares 
+#         # x, saver, sequentialOutput, = ctx.saved_tensors
+#         # m = torch.linalg.lstsq(x, sequentialOutput).solution
+#         # saver.grad = gradients.clone()
+#         # return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
+        
+#         x, saver, sequentialOutput, = ctx.saved_tensors
+#         # s = time.time()
+#         t = 1e-9
+#         x_T = torch.transpose(x, 0, 1)
+#         I = torch.eye(x.shape[0]).to('cuda:1')
+#         try:
+#             pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + t * I)) 
+#         except Exception:
+#             pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + I)) 
+
+#         # print(pinv.shape)
+#         m = torch.mm(pinv, sequentialOutput) # torch.transpose(pinv, -1, 1)
+#         # print(m.shape)
+
+
+#         # print(x.shape)
+#         # print(sequentialOutput.shape)
+#         # print('saver dtype ', saver.dtype, saver.shape, saver.device)
+#         # print('gradients dtype ', gradients.dtype, gradients.shape, gradients.device)
+#         saver.grad = gradients.clone()#.cpu()
+#         # print('in grad saver ', saver.grad)
+
+
+#         # print(gradients.shape, m.shape)
+#         # a = 
+    
+#         # z = torch.mm(gradients, m)#, None, None
+#         # z = torch.bmm(gradients, m)
+#         # lst_sqs_sum += (time.time() -s )
+#         z = torch.matmul(gradients, torch.transpose(m, 0, 1))#, None, None
+#         # print('matmul result in grad saver: ', z)
+#         return z, None, None
+
 class GradSaver(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, sequentialOutput, saver):
@@ -13,46 +60,10 @@ class GradSaver(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, gradients):
-        # old method using least squares 
-        # x, saver, sequentialOutput, = ctx.saved_tensors
-        # m = torch.linalg.lstsq(x, sequentialOutput).solution
-        # saver.grad = gradients.clone()
-        # return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
-        
         x, saver, sequentialOutput, = ctx.saved_tensors
-        # s = time.time()
-        t = 1e-9
-        x_T = torch.transpose(x, 0, 1)
-        I = torch.eye(x.shape[0]).to('cuda:1')
-        try:
-            pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + t * I)) 
-        except Exception:
-            pinv = torch.mm(x_T, torch.inverse(torch.mm(x, x_T) + I)) 
-
-        # print(pinv.shape)
-        m = torch.mm(pinv, sequentialOutput) # torch.transpose(pinv, -1, 1)
-        # print(m.shape)
-
-
-        # print(x.shape)
-        # print(sequentialOutput.shape)
-        # print('saver dtype ', saver.dtype, saver.shape, saver.device)
-        # print('gradients dtype ', gradients.dtype, gradients.shape, gradients.device)
-        saver.grad = gradients.clone()#.cpu()
-        # print('in grad saver ', saver.grad)
-
-
-        # print(gradients.shape, m.shape)
-        # a = 
-    
-        # z = torch.mm(gradients, m)#, None, None
-        # z = torch.bmm(gradients, m)
-        # lst_sqs_sum += (time.time() -s )
-        z = torch.matmul(gradients, torch.transpose(m, 0, 1))#, None, None
-        # print('matmul result in grad saver: ', z)
-        return z, None, None
-
-
+        m = torch.linalg.lstsq(x, sequentialOutput).solution
+        saver.grad = gradients.clone()
+        return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
 
 
 class TeacherNet(nn.Module):
@@ -104,8 +115,11 @@ class MNet(torch.nn.Module):
         self.input_x = x_clone
 
         lo = x_clone
+        # print('x_clone.device', x_clone.device)
+        # print('layer', self.layers[0])
         for l in self.layers:
             lo = l(lo)
+            # print('lo.device', lo.device)
             lo = F.relu(lo)
         return lo
 
@@ -183,7 +197,7 @@ class FastUpdateNet(torch.nn.Module):
         return ps
     
 class FastUpdateNetLarge(torch.nn.Module):
-    def __init__(self, teacherNet = None, total_image_pixel = 784):
+    def __init__(self, use_M= True, teacherNet = False, total_image_pixel = 784):
         super(FastUpdateNetLarge, self).__init__()
         if teacherNet:
             self.fc1 = teacherNet.fc1
@@ -191,11 +205,17 @@ class FastUpdateNetLarge(torch.nn.Module):
             self.fc3 = teacherNet.fc3
         else:
             self.fc1 = nn.Linear(total_image_pixel, 392)
-            self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            if use_M:
+                self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1'))
+                self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1'))
+            else:
+                self.mNet1 = torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1')
+                self.mNet2 = torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1')
+            
             self.fc2 = nn.Linear(49,392)
             # self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU()))
 
-            self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()))
+            
             self.fc3 = nn.Linear(49, 10)
 
     def forward(self, x):
@@ -204,6 +224,7 @@ class FastUpdateNetLarge(torch.nn.Module):
         o_2 = F.relu(self.fc1(o_1))
         o_3 = self.mNet1(o_2)
         o_imd = F.relu(self.fc2(o_3))
+        # print('mnet2')
         o_4 = self.mNet2(o_imd)
 
         o_5 = self.fc3(o_4)
@@ -225,6 +246,69 @@ class FastUpdateNetLarge(torch.nn.Module):
             ps.append(p)
         return ps
     
+class FastUpdateNetLarge_Better(torch.nn.Module):
+    def __init__(self, use_M= True, total_image_pixel = 784):
+        super(FastUpdateNetLarge_Better, self).__init__()
+   
+        self.fc1 = nn.Linear(total_image_pixel, 700)
+        if use_M:
+            self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(700, 620), nn.ReLU(), nn.Linear(620, 540), nn.ReLU(), nn.Linear(540, 460), nn.ReLU()).to('cuda:1'))
+            self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(380, 300), nn.ReLU(), nn.Linear(300, 220), nn.ReLU(), nn.Linear(220, 140), nn.ReLU()).to('cuda:1'))
+        else:
+            self.mNet1 = torch.nn.Sequential(nn.Linear(700, 620), nn.ReLU(), nn.Linear(620, 540), nn.ReLU(), nn.Linear(540, 460), nn.ReLU()).to('cuda:1')
+            self.mNet2 = torch.nn.Sequential(nn.Linear(380, 300), nn.ReLU(), nn.Linear(300, 220), nn.ReLU(), nn.Linear(220, 140), nn.ReLU()).to('cuda:1')
+        
+        self.fc2 = nn.Linear(460,380)
+            # self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU()))
+
+            
+        self.fc3 = nn.Linear(140, 10)
+
+    def forward(self, x):
+        o_1 = torch.reshape(x, (x.shape[0], 28*28))
+        
+        o_2 = F.relu(self.fc1(o_1))
+        o_3 = self.mNet1(o_2)
+        o_imd = F.relu(self.fc2(o_3))
+        # print('mnet2')
+        o_4 = self.mNet2(o_imd)
+
+        o_5 = self.fc3(o_4)
+        return F.log_softmax(o_5)
+    
+class FastUpdateNetLarge_Best(torch.nn.Module):
+    def __init__(self, use_M= True, teacherNet = False, total_image_pixel = 784):
+        super(FastUpdateNetLarge_Best, self).__init__()
+
+        self.fc1 = nn.Linear(total_image_pixel, 392)
+        if use_M:
+            # self.mNet1 = torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 392), nn.ReLU(), nn.Linear(392, 784), nn.ReLU()).to('cuda:1')
+            self.mNet1 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 392), nn.ReLU(), nn.Linear(392, 784), nn.ReLU()).to('cuda:1'))
+            self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1'))
+        else:
+            self.mNet1 = torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 392), nn.ReLU(), nn.Linear(392, 784), nn.ReLU()).to('cuda:1')
+            self.mNet2 = torch.nn.Sequential(nn.Linear(392, 196), nn.ReLU(), nn.Linear(196, 98), nn.ReLU(), nn.Linear(98, 49), nn.ReLU()).to('cuda:1')
+        
+        self.fc2 = nn.Linear(784,392)
+        # self.mNet2 = MNet(torch.nn.Sequential(nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU(), nn.Linear(49, 49), nn.ReLU()))
+
+        
+        self.fc3 = nn.Linear(49, 10)
+
+    def forward(self, x):
+        o_1 = torch.reshape(x, (x.shape[0], 28*28))
+        
+        o_2 = F.relu(self.fc1(o_1))
+        o_3 = self.mNet1(o_2)
+        o_imd = F.relu(self.fc2(o_3))
+        # print('mnet2')
+        o_4 = self.mNet2(o_imd + o_2) # NOTE the residual connection
+
+        o_5 = self.fc3(o_4)
+        return F.log_softmax(o_5)
+
+
+
 class Linear_AE(torch.nn.Module):
     def __init__(self, teacherNet = None, total_image_pixel = 784, encoding_dim=10):
         super(Linear_AE, self).__init__()
