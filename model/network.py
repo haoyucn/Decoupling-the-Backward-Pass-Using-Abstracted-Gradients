@@ -62,7 +62,7 @@ class GradSaver(torch.autograd.Function):
     def backward(ctx, gradients):
         x, saver, sequentialOutput, = ctx.saved_tensors
         m = torch.linalg.lstsq(x, sequentialOutput).solution
-        saver.grad = gradients.clone()
+        saver.g = gradients.clone()
         return torch.matmul(gradients, torch.transpose(m, 0, 1)), None, None
 
 
@@ -104,7 +104,7 @@ class MNet(torch.nn.Module):
         # self.layers.requires_grad = False
         self.input_x = None
         self.layersOutput = []
-        self.saver = torch.ones((64,49), dtype = self.layers[1].weight.dtype, requires_grad=True).to('cuda:1') # check dims of this (batch, output of M) -- TODO
+        self.saver = torch.ones((64,49), dtype = self.layers[1].weight.dtype, requires_grad=False).to('cuda:1') # check dims of this (batch, output of M) -- TODO
         self.gradDiverge = GradSaver.apply
 
     def getLayersOutput(self, x):
@@ -149,9 +149,15 @@ class MNet(torch.nn.Module):
         # o = F.linear(x, torch.transpose(m, 0, 1))
         return self.gradDiverge(x, self.sequentialOutput.clone().detach(), self.saver)
 
-    def backwardHidden(self):
+    def backwardHidden(self,Q=None):
         # print('in MNet, ', self.saver.grad)
-        self.sequentialOutput.backward(gradient = self.saver.grad.clone().detach())
+        if Q is not None:
+            g = Q.get()
+            print(g)
+            Q.put(g.detach())
+            self.sequentialOutput.backward(gradient = g)
+        else:
+            self.sequentialOutput.backward(gradient = self.saver.g.clone().detach())
         
     def get_parameters(self):
         ps = []
