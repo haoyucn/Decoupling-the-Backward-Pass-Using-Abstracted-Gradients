@@ -154,7 +154,7 @@ class MNet(torch.nn.Module):
         if Q is not None:
             g = Q.get()
             print(g)
-            Q.put(g.detach())
+            # Q.put(g.detach())
             self.sequentialOutput.backward(gradient = g)
         else:
             self.sequentialOutput.backward(gradient = self.saver.g.clone().detach())
